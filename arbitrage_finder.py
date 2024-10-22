@@ -117,13 +117,14 @@ class ArbitrageFinder:
         implied_probs = {team: 1/odd for team, odd in odds.items()}
         total_implied_prob = sum(implied_probs.values())
         
-        total_stake = bet_amount / (1 - total_implied_prob)
-        bets = {team: total_stake * prob for team, prob in implied_probs.items()}
+        # Scale bets to the user's input amount
+        scale_factor = bet_amount / (1 - total_implied_prob)
+        bets = {team: scale_factor * prob for team, prob in implied_probs.items()}
         
         if rounding:
             bets = {team: round(bet / rounding) * rounding for team, bet in bets.items()}
-            total_stake = sum(bets.values())
-
+        
+        total_stake = sum(bets.values())
         returns = {team: bets[team] * odds[team] for team in odds.keys()}
 
         return total_stake, bets, returns
