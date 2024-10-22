@@ -72,39 +72,49 @@ class ArbitrageFinder:
         for event in odds:
             best_odds, bookmakers, points = self.get_best_odds(event)
             if best_odds:
-                if self.config.market == 'h2h':
-                    implied_prob = sum(1 / odd for odd in best_odds.values())
-                elif self.config.market == 'spreads':
-                    # Filter out the 'spread' key for implied probability calculation
-                    odds_without_spread = {k: v for k, v in best_odds.items() if k != 'spread'}
-                    implied_prob = sum(1 / odd for odd in odds_without_spread.values())
-                elif self.config.market == 'totals':
-                    implied_prob = 1/best_odds['Over'] + 1/best_odds['Under']
-                else:
-                    logging.warning(f"Unsupported market: {self.config.market}")
-                    continue
-
-                logging.info(f"Event: {event['home_team']} vs {event['away_team']}, Implied Prob: {implied_prob}")
-                
-                if implied_prob < 1:
-                    profit_margin = (1 / implied_prob - 1) * 100
-                    logging.info(f"Potential arbitrage found! Profit Margin: {profit_margin}%")
-                    if profit_margin >= self.config.cutoff:
-                        arb = {
-                            'event': event['home_team'] + ' vs ' + event['away_team'],
-                            'profit_margin': profit_margin,
-                            'best_odds': best_odds,
-                            'bookmakers': bookmakers,
-                            'commence_time': event['commence_time'],
-                            'market': self.config.market
-                        }
-                        if points is not None:
-                            arb['points'] = points
-                        arbs.append(arb)
+                try:
+                    if self.config.market == 'h2h':
+                        implied_prob = sum(1 / odd for odd in best_odds.values())
+                    elif self.config.market == 'spreads':
+                        # Filter out the 'spread' key and verify bookmakers are different
+                        odds_without_spread = {k: v for k, v in best_odds.items() if k != 'spread'}
+                        teams = list(odds_without_spread.keys())
+                        if len(teams) == 2 and bookmakers[teams[0]] != bookmakers[teams[1]]:
+                            implied_prob = sum(1 / odd for odd in odds_without_spread.values())
+                        else:
+                            logging.warning("Invalid spread bet setup - skipping")
+                            continue
+                    elif self.config.market == 'totals':
+                        implied_prob = 1/best_odds['Over'] + 1/best_odds['Under']
                     else:
-                        logging.info(f"Profit margin {profit_margin}% below cutoff {self.config.cutoff}%")
-                else:
-                    logging.info("No arbitrage opportunity")
+                        logging.warning(f"Unsupported market: {self.config.market}")
+                        continue
+
+                    logging.info(f"Event: {event['home_team']} vs {event['away_team']}, Implied Prob: {implied_prob}")
+                    
+                    if implied_prob < 1:
+                        profit_margin = (1 / implied_prob - 1) * 100
+                        logging.info(f"Potential arbitrage found! Profit Margin: {profit_margin}%")
+                        if profit_margin >= self.config.cutoff:
+                            arb = {
+                                'event': event['home_team'] + ' vs ' + event['away_team'],
+                                'profit_margin': profit_margin,
+                                'best_odds': best_odds,
+                                'bookmakers': bookmakers,
+                                'commence_time': event['commence_time'],
+                                'market': self.config.market
+                            }
+                            if points is not None:
+                                arb['points'] = points
+                            arbs.append(arb)
+                            logging.info(f"Added arbitrage opportunity with {profit_margin:.2f}% profit margin")
+                        else:
+                            logging.info(f"Profit margin {profit_margin}% below cutoff {self.config.cutoff}%")
+                    else:
+                        logging.info("No arbitrage opportunity")
+                except Exception as e:
+                    logging.error(f"Error calculating arbitrage for event: {str(e)}")
+                    continue
             else:
                 logging.info(f"No valid odds for {event['home_team']} vs {event['away_team']}")
         return arbs
@@ -195,10 +205,10 @@ class ArbitrageFinder:
 
     def get_best_odds_spreads(self, event):
         event_teams = [event['home_team'], event['away_team']]
-        odds_by_points = defaultdict(lambda: {'Favorite': {'odds': 0, 'team': None}, 
-                                            'Underdog': {'odds': 0, 'team': None},
-                                            'Even': {'odds': 0, 'team': None}})
-        bookmakers_by_points = defaultdict(lambda: {'Favorite': '', 'Underdog': '', 'Even': ''})
+        odds_by_points = defaultdict(lambda: {
+            'Home': {'odds': 0, 'team': None, 'bookmaker': None},
+            'Away': {'odds': 0, 'team': None, 'bookmaker': None}
+        })
         
         if 'bookmakers' in event and isinstance(event['bookmakers'], list):
             for bookmaker in event['bookmakers']:
@@ -213,22 +223,16 @@ class ArbitrageFinder:
                                     if not team_name:
                                         continue
 
-                                    point_key = point  # Keep the actual point value
+                                    # Determine if team is home or away
+                                    side = 'Home' if team_name == event['home_team'] else 'Away'
                                     
-                                    # Determine side based on point value
-                                    if point < 0:
-                                        side = 'Favorite'
-                                    elif point > 0:
-                                        side = 'Underdog'
-                                    else:  # point == 0
-                                        side = 'Even'
-
-                                    if outcome['price'] > odds_by_points[point_key][side]['odds']:
-                                        odds_by_points[point_key][side] = {
+                                    # Store odds if better than existing
+                                    if outcome['price'] > odds_by_points[point][side]['odds']:
+                                        odds_by_points[point][side] = {
                                             'odds': outcome['price'],
-                                            'team': team_name
+                                            'team': team_name,
+                                            'bookmaker': bookmaker['title']
                                         }
-                                        bookmakers_by_points[point_key][side] = bookmaker['title']
         
         # Find the best arbitrage opportunity across all point spreads
         best_odds = None
@@ -237,35 +241,36 @@ class ArbitrageFinder:
         best_implied_prob = float('inf')
 
         for point, sides in odds_by_points.items():
-            if point == 0:  # Handle pick'em games
-                if sides['Even']['odds'] > 0:
-                    implied_prob = 2 / sides['Even']['odds']  # Both sides have same odds
-                    if implied_prob < best_implied_prob:
-                        best_implied_prob = implied_prob
-                        best_odds = {
-                            event['home_team']: sides['Even']['odds'],
-                            event['away_team']: sides['Even']['odds']
-                        }
-                        best_bookmakers = {
-                            event['home_team']: bookmakers_by_points[point]['Even'],
-                            event['away_team']: bookmakers_by_points[point]['Even']
-                        }
-                        best_points = 0
-            else:
-                if (sides['Favorite']['odds'] > 0 and sides['Underdog']['odds'] > 0 and
-                    sides['Favorite']['team'] and sides['Underdog']['team']):
-                    implied_prob = 1/sides['Favorite']['odds'] + 1/sides['Underdog']['odds']
-                    if implied_prob < best_implied_prob:
-                        best_implied_prob = implied_prob
-                        best_odds = {
-                            sides['Favorite']['team']: sides['Favorite']['odds'],
-                            sides['Underdog']['team']: sides['Underdog']['odds']
-                        }
-                        best_bookmakers = {
-                            sides['Favorite']['team']: bookmakers_by_points[point]['Favorite'],
-                            sides['Underdog']['team']: bookmakers_by_points[point]['Underdog']
-                        }
-                        best_points = point
+            # Verify we have odds for both sides and different bookmakers
+            if (sides['Home']['odds'] > 0 and sides['Away']['odds'] > 0 and
+                sides['Home']['bookmaker'] != sides['Away']['bookmaker']):
+                
+                # Calculate implied probability for this spread
+                home_prob = 1/sides['Home']['odds']
+                away_prob = 1/sides['Away']['odds']
+                implied_prob = home_prob + away_prob
+                
+                logging.info(f"Checking spread {point}:")
+                logging.info(f"  Home: {sides['Home']['team']} @ {sides['Home']['odds']} ({sides['Home']['bookmaker']}) - Implied prob: {home_prob:.4f}")
+                logging.info(f"  Away: {sides['Away']['team']} @ {sides['Away']['odds']} ({sides['Away']['bookmaker']}) - Implied prob: {away_prob:.4f}")
+                logging.info(f"  Total implied prob: {implied_prob:.4f}")
+                
+                if implied_prob < 1:  # Changed from best_implied_prob to 1
+                    best_implied_prob = implied_prob
+                    best_odds = {
+                        sides['Home']['team']: sides['Home']['odds'],
+                        sides['Away']['team']: sides['Away']['odds']
+                    }
+                    best_bookmakers = {
+                        sides['Home']['team']: sides['Home']['bookmaker'],
+                        sides['Away']['team']: sides['Away']['bookmaker']
+                    }
+                    best_points = point
+                    
+                    logging.info(f"Found arbitrage opportunity at {point} points:")
+                    logging.info(f"  Home: {sides['Home']['team']} @ {sides['Home']['odds']} ({sides['Home']['bookmaker']})")
+                    logging.info(f"  Away: {sides['Away']['team']} @ {sides['Away']['odds']} ({sides['Away']['bookmaker']})")
+                    logging.info(f"  Implied Probability: {implied_prob}")
 
         if best_odds:
             # Add spread information to best_odds
