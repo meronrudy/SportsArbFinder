@@ -90,21 +90,6 @@ def generate_html(data):
                 margin-top: 10px;
                 font-weight: bold;
             }}
-            .explanation {{
-                background-color: #e8f6fe;
-                padding: 15px;
-                border-radius: 5px;
-                margin-bottom: 20px;
-            }}
-            .explanation h2 {{
-                color: #2980b9;
-            }}
-            .explanation ul, .explanation ol {{
-                padding-left: 20px;
-            }}
-            .explanation li {{
-                margin-bottom: 10px;
-            }}
         </style>
         <script>
             function updateProfits() {{
@@ -141,27 +126,6 @@ def generate_html(data):
             <label for="wager">Enter wager amount: $</label>
             <input type="number" id="wager" min="0" step="0.01" value="100">
             <button onclick="updateProfits()">Update Profits</button>
-        </div>
-        <div class="explanation">
-            <h2>How to Interpret H2H (Head-to-Head) Opportunities</h2>
-            <p>In H2H betting, you're presented with odds for each possible outcome of an event. Here's how to understand the information:</p>
-            <ul>
-                <li><strong>Event:</strong> The teams or participants involved in the match.</li>
-                <li><strong>Profit Margin:</strong> The percentage of profit you can make if you bet on all outcomes optimally.</li>
-                <li><strong>Date:</strong> When the event is scheduled to take place.</li>
-                <li><strong>Odds:</strong> The payout multiplier for each outcome. For example, odds of 2.00 mean you'll receive $2 for every $1 bet if that outcome occurs.</li>
-                <li><strong>Bookmaker:</strong> The betting platform offering the best odds for each outcome.</li>
-                <li><strong>Profit:</strong> The amount you'll gain based on your entered wager.</li>
-                <li><strong>Payout:</strong> The total amount you'll receive (initial wager + profit) if you bet optimally on all outcomes.</li>
-            </ul>
-            <p>To capitalize on an arbitrage opportunity:</p>
-            <ol>
-                <li>Enter your total desired wager in the input box above.</li>
-                <li>Click "Update Profits" to see potential profits for each opportunity.</li>
-                <li>For each opportunity, place bets on all outcomes, distributing your wager proportionally to the odds to ensure equal profit regardless of the result.</li>
-                <li>Use the specified bookmakers to get the best odds for each outcome.</li>
-            </ol>
-            <p><strong>Note:</strong> Always double-check the current odds before placing bets, as they can change rapidly.</p>
         </div>
         <div class="summary">
             <h2>Summary</h2>

@@ -220,7 +220,7 @@ class ArbitrageFinder:
         total_implied_prob = sum(implied_probs.values())
         
         # Calculate the actual profit margin
-        profit_margin = 1 - total_implied_prob
+        profit_margin = (1 / total_implied_prob) - 1
         
         # Scale bets to the user's input amount
         bets = {team: bet_amount * (prob / total_implied_prob) for team, prob in implied_probs.items()}
