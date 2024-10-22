@@ -3,12 +3,14 @@ import json
 from datetime import datetime
 from collections import defaultdict
 import logging
+from difflib import get_close_matches
 
 class ArbitrageFinder:
     def __init__(self, config):
         self.config = config
         self.odds_api = OddsAPI(config)
         self.setup_logging()
+        self.team_name_cache = {}  # Cache for standardized team names
 
     def setup_logging(self):
         logging.basicConfig(filename='arbitrage_finder.log', level=logging.INFO,
@@ -170,9 +172,33 @@ class ArbitrageFinder:
         else:
             return None, None, None
 
+    def standardize_team_name(self, team_name, event_teams):
+        """
+        Standardize team names using fuzzy matching.
+        Cache results to improve performance.
+        """
+        if not team_name:
+            return None
+            
+        cache_key = (team_name.lower(), tuple(sorted(event_teams)))
+        if cache_key in self.team_name_cache:
+            return self.team_name_cache[cache_key]
+
+        matches = get_close_matches(team_name.lower(), [t.lower() for t in event_teams], n=1, cutoff=0.6)
+        if matches:
+            standardized = next(t for t in event_teams if t.lower() == matches[0])
+            self.team_name_cache[cache_key] = standardized
+            return standardized
+        
+        logging.warning(f"No match found for team name: {team_name}")
+        return None
+
     def get_best_odds_spreads(self, event):
-        odds_by_points = defaultdict(lambda: {'Favorite': {'odds': 0, 'team': None}, 'Underdog': {'odds': 0, 'team': None}})
-        bookmakers_by_points = defaultdict(lambda: {'Favorite': '', 'Underdog': ''})
+        event_teams = [event['home_team'], event['away_team']]
+        odds_by_points = defaultdict(lambda: {'Favorite': {'odds': 0, 'team': None}, 
+                                            'Underdog': {'odds': 0, 'team': None},
+                                            'Even': {'odds': 0, 'team': None}})
+        bookmakers_by_points = defaultdict(lambda: {'Favorite': '', 'Underdog': '', 'Even': ''})
         
         if 'bookmakers' in event and isinstance(event['bookmakers'], list):
             for bookmaker in event['bookmakers']:
@@ -182,42 +208,64 @@ class ArbitrageFinder:
                             for outcome in market['outcomes']:
                                 point = outcome.get('point')
                                 if point is not None:
-                                    # Negative spread indicates favorite, positive indicates underdog
-                                    if point < 0:  # Favorite
-                                        if outcome['price'] > odds_by_points[abs(point)]['Favorite']['odds']:
-                                            odds_by_points[abs(point)]['Favorite'] = {
-                                                'odds': outcome['price'],
-                                                'team': outcome['name']
-                                            }
-                                            bookmakers_by_points[abs(point)]['Favorite'] = bookmaker['title']
-                                    else:  # Underdog
-                                        if outcome['price'] > odds_by_points[point]['Underdog']['odds']:
-                                            odds_by_points[point]['Underdog'] = {
-                                                'odds': outcome['price'],
-                                                'team': outcome['name']
-                                            }
-                                            bookmakers_by_points[point]['Underdog'] = bookmaker['title']
+                                    # Standardize team name
+                                    team_name = self.standardize_team_name(outcome['name'], event_teams)
+                                    if not team_name:
+                                        continue
+
+                                    point_key = point  # Keep the actual point value
+                                    
+                                    # Determine side based on point value
+                                    if point < 0:
+                                        side = 'Favorite'
+                                    elif point > 0:
+                                        side = 'Underdog'
+                                    else:  # point == 0
+                                        side = 'Even'
+
+                                    if outcome['price'] > odds_by_points[point_key][side]['odds']:
+                                        odds_by_points[point_key][side] = {
+                                            'odds': outcome['price'],
+                                            'team': team_name
+                                        }
+                                        bookmakers_by_points[point_key][side] = bookmaker['title']
         
+        # Find the best arbitrage opportunity across all point spreads
         best_odds = None
         best_bookmakers = None
         best_points = None
         best_implied_prob = float('inf')
 
-        for point, odds in odds_by_points.items():
-            if (odds['Favorite']['odds'] > 0 and odds['Underdog']['odds'] > 0 and
-                odds['Favorite']['team'] and odds['Underdog']['team']):
-                implied_prob = 1/odds['Favorite']['odds'] + 1/odds['Underdog']['odds']
-                if implied_prob < best_implied_prob:
-                    best_implied_prob = implied_prob
-                    best_odds = {
-                        odds['Favorite']['team']: odds['Favorite']['odds'],
-                        odds['Underdog']['team']: odds['Underdog']['odds']
-                    }
-                    best_bookmakers = {
-                        odds['Favorite']['team']: bookmakers_by_points[point]['Favorite'],
-                        odds['Underdog']['team']: bookmakers_by_points[point]['Underdog']
-                    }
-                    best_points = point
+        for point, sides in odds_by_points.items():
+            if point == 0:  # Handle pick'em games
+                if sides['Even']['odds'] > 0:
+                    implied_prob = 2 / sides['Even']['odds']  # Both sides have same odds
+                    if implied_prob < best_implied_prob:
+                        best_implied_prob = implied_prob
+                        best_odds = {
+                            event['home_team']: sides['Even']['odds'],
+                            event['away_team']: sides['Even']['odds']
+                        }
+                        best_bookmakers = {
+                            event['home_team']: bookmakers_by_points[point]['Even'],
+                            event['away_team']: bookmakers_by_points[point]['Even']
+                        }
+                        best_points = 0
+            else:
+                if (sides['Favorite']['odds'] > 0 and sides['Underdog']['odds'] > 0 and
+                    sides['Favorite']['team'] and sides['Underdog']['team']):
+                    implied_prob = 1/sides['Favorite']['odds'] + 1/sides['Underdog']['odds']
+                    if implied_prob < best_implied_prob:
+                        best_implied_prob = implied_prob
+                        best_odds = {
+                            sides['Favorite']['team']: sides['Favorite']['odds'],
+                            sides['Underdog']['team']: sides['Underdog']['odds']
+                        }
+                        best_bookmakers = {
+                            sides['Favorite']['team']: bookmakers_by_points[point]['Favorite'],
+                            sides['Underdog']['team']: bookmakers_by_points[point]['Underdog']
+                        }
+                        best_points = point
 
         if best_odds:
             # Add spread information to best_odds
