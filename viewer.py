@@ -144,27 +144,45 @@ def generate_html(data):
 
     opportunities_html = ""
     for arb in sorted_arbs:
-        total_implied_prob = sum(1/odd for odd in arb['best_odds'].values())
+        # Filter out 'spread' key for implied probability calculation
+        odds_for_calc = {k: v for k, v in arb['best_odds'].items() if k != 'spread'}
+        total_implied_prob = sum(1/odd for odd in odds_for_calc.values())
+        
         opportunities_html += f"""
         <div class="opportunity" data-profit-margin="{arb['profit_margin']}" data-total-implied-prob="{total_implied_prob}">
             <h2>{arb['event']}</h2>
             <p>Profit Margin: {arb['profit_margin']:.2f}%</p>
             <p>Date: {format_date(arb['commence_time'])}</p>
             <p>Market: {arb.get('market', 'N/A')}</p>
-            <p>Total Points: {arb.get('total_points', 'N/A')}</p>
-            <div class="odds">
-        """
-        for outcome, odd in arb['best_odds'].items():
-            bookmaker = arb['bookmakers'][outcome]
-            implied_prob = 1 / odd
-            opportunities_html += f"""
-                <div>
-                    <h3>{outcome}</h3>
-                    <p>Odds: {odd:.2f}</p>
-                    <p>Bookmaker: {bookmaker}</p>
-                    <p>Bet Amount: $<span class="bet-amount" data-implied-prob="{implied_prob}">0.00</span></p>
-                </div>
             """
+        
+        if arb.get('market') == 'spreads':
+            opportunities_html += f"<p>Points Spread: {arb.get('points', 'N/A')}</p>"
+        elif arb.get('market') == 'totals':
+            opportunities_html += f"<p>Total Points: {arb.get('points', 'N/A')}</p>"
+            
+        opportunities_html += '<div class="odds">'
+        
+        for outcome, odd in arb['best_odds'].items():
+            if outcome != 'spread':  # Skip the spread key when displaying odds
+                bookmaker = arb['bookmakers'][outcome]
+                implied_prob = 1 / odd
+                
+                if arb.get('market') == 'spreads':
+                    spread = f"+{arb['points']}" if outcome == 'Underdog' else f"-{arb['points']}"
+                    label = f"{outcome} ({spread})"
+                else:
+                    label = outcome
+                
+                opportunities_html += f"""
+                    <div>
+                        <h3>{label}</h3>
+                        <p>Odds: {odd:.2f}</p>
+                        <p>Bookmaker: {bookmaker}</p>
+                        <p>Bet Amount: $<span class="bet-amount" data-implied-prob="{implied_prob}">0.00</span></p>
+                    </div>
+                """
+        
         opportunities_html += """
             </div>
             <div class="profit-payout">

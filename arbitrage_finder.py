@@ -68,11 +68,15 @@ class ArbitrageFinder:
     def calculate_arbitrage(self, odds):
         arbs = []
         for event in odds:
-            best_odds, bookmakers, total_points = self.get_best_odds(event)
+            best_odds, bookmakers, points = self.get_best_odds(event)
             if best_odds:
                 if self.config.market == 'h2h':
                     implied_prob = sum(1 / odd for odd in best_odds.values())
-                elif self.config.market in ['totals', 'spreads']:
+                elif self.config.market == 'spreads':
+                    # Filter out the 'spread' key for implied probability calculation
+                    odds_without_spread = {k: v for k, v in best_odds.items() if k != 'spread'}
+                    implied_prob = sum(1 / odd for odd in odds_without_spread.values())
+                elif self.config.market == 'totals':
                     implied_prob = 1/best_odds['Over'] + 1/best_odds['Under']
                 else:
                     logging.warning(f"Unsupported market: {self.config.market}")
@@ -92,8 +96,8 @@ class ArbitrageFinder:
                             'commence_time': event['commence_time'],
                             'market': self.config.market
                         }
-                        if total_points is not None:
-                            arb['total_points'] = total_points
+                        if points is not None:
+                            arb['points'] = points
                         arbs.append(arb)
                     else:
                         logging.info(f"Profit margin {profit_margin}% below cutoff {self.config.cutoff}%")
@@ -167,8 +171,8 @@ class ArbitrageFinder:
             return None, None, None
 
     def get_best_odds_spreads(self, event):
-        odds_by_points = defaultdict(lambda: {'Home': 0, 'Away': 0})
-        bookmakers_by_points = defaultdict(lambda: {'Home': '', 'Away': ''})
+        odds_by_points = defaultdict(lambda: {'Favorite': {'odds': 0, 'team': None}, 'Underdog': {'odds': 0, 'team': None}})
+        bookmakers_by_points = defaultdict(lambda: {'Favorite': '', 'Underdog': ''})
         
         if 'bookmakers' in event and isinstance(event['bookmakers'], list):
             for bookmaker in event['bookmakers']:
@@ -178,10 +182,21 @@ class ArbitrageFinder:
                             for outcome in market['outcomes']:
                                 point = outcome.get('point')
                                 if point is not None:
-                                    team_type = 'Home' if outcome['name'] == event['home_team'] else 'Away'
-                                    if outcome['price'] > odds_by_points[point][team_type]:
-                                        odds_by_points[point][team_type] = outcome['price']
-                                        bookmakers_by_points[point][team_type] = bookmaker['title']
+                                    # Negative spread indicates favorite, positive indicates underdog
+                                    if point < 0:  # Favorite
+                                        if outcome['price'] > odds_by_points[abs(point)]['Favorite']['odds']:
+                                            odds_by_points[abs(point)]['Favorite'] = {
+                                                'odds': outcome['price'],
+                                                'team': outcome['name']
+                                            }
+                                            bookmakers_by_points[abs(point)]['Favorite'] = bookmaker['title']
+                                    else:  # Underdog
+                                        if outcome['price'] > odds_by_points[point]['Underdog']['odds']:
+                                            odds_by_points[point]['Underdog'] = {
+                                                'odds': outcome['price'],
+                                                'team': outcome['name']
+                                            }
+                                            bookmakers_by_points[point]['Underdog'] = bookmaker['title']
         
         best_odds = None
         best_bookmakers = None
@@ -189,15 +204,24 @@ class ArbitrageFinder:
         best_implied_prob = float('inf')
 
         for point, odds in odds_by_points.items():
-            if odds['Home'] > 0 and odds['Away'] > 0:
-                implied_prob = 1/odds['Home'] + 1/odds['Away']
+            if (odds['Favorite']['odds'] > 0 and odds['Underdog']['odds'] > 0 and
+                odds['Favorite']['team'] and odds['Underdog']['team']):
+                implied_prob = 1/odds['Favorite']['odds'] + 1/odds['Underdog']['odds']
                 if implied_prob < best_implied_prob:
                     best_implied_prob = implied_prob
-                    best_odds = odds.copy()
-                    best_bookmakers = bookmakers_by_points[point]
+                    best_odds = {
+                        odds['Favorite']['team']: odds['Favorite']['odds'],
+                        odds['Underdog']['team']: odds['Underdog']['odds']
+                    }
+                    best_bookmakers = {
+                        odds['Favorite']['team']: bookmakers_by_points[point]['Favorite'],
+                        odds['Underdog']['team']: bookmakers_by_points[point]['Underdog']
+                    }
                     best_points = point
 
         if best_odds:
+            # Add spread information to best_odds
+            best_odds['spread'] = best_points
             return best_odds, best_bookmakers, best_points
         else:
             return None, None, None
@@ -206,25 +230,37 @@ class ArbitrageFinder:
         if arbs:
             logging.info(f"\nArbitrage opportunities for {sport_title}:")
             for arb in arbs:
-                logging.info(f"  Event: {arb['event']}")
-                logging.info(f"  Date: {self.format_date(arb['commence_time'])}")
-                logging.info(f"  Profit Margin: {arb['profit_margin']:.2f}%")
-                logging.info(f"  Market: {arb['market']}")
-                if 'total_points' in arb:
-                    logging.info(f"  Total Points: {arb['total_points']}")
-                logging.info("  Best Odds and Bookmakers:")
-                for outcome, odd in arb['best_odds'].items():
-                    if outcome != 'total_points':  # Skip 'total_points' when iterating over odds
-                        bookmaker = arb['bookmakers'][outcome]
-                        if arb['market'] == 'totals':
-                            total_points = arb.get('total_points', 'N/A')
-                            logging.info(f"    {outcome} {total_points}: {odd:.2f} ({bookmaker})")
-                        else:
-                            logging.info(f"    {outcome}: {odd:.2f} ({bookmaker})")
+                try:
+                    logging.info(f"  Event: {arb['event']}")
+                    logging.info(f"  Date: {self.format_date(arb['commence_time'])}")
+                    logging.info(f"  Profit Margin: {arb['profit_margin']:.2f}%")
+                    logging.info(f"  Market: {arb['market']}")
+                    if 'points' in arb:
+                        logging.info(f"  Points Spread: {arb['points']}")
+                    logging.info("  Best Odds and Bookmakers:")
+                    
+                    for outcome, odd in arb['best_odds'].items():
+                        if outcome != 'spread':  # Skip the spread key when displaying odds
+                            bookmaker = arb['bookmakers'][outcome]
+                            if arb['market'] == 'totals':
+                                points = arb.get('points', 'N/A')
+                                logging.info(f"    {outcome} {points}: {odd:.2f} ({bookmaker})")
+                            elif arb['market'] == 'spreads':
+                                spread = f"+{arb['points']}" if outcome == 'Underdog' else f"-{arb['points']}"
+                                logging.info(f"    {outcome} ({spread}): {odd:.2f} ({bookmaker})")
+                            else:
+                                logging.info(f"    {outcome}: {odd:.2f} ({bookmaker})")
+                    
+                    if self.config.interactive:
+                        self.interactive_calculator(arb)
+                    logging.info("")
                 
-                if self.config.interactive:
-                    self.interactive_calculator(arb)
-                logging.info("")
+                except KeyError as e:
+                    logging.error(f"Missing key in arbitrage data: {str(e)}")
+                    continue
+                except Exception as e:
+                    logging.error(f"Error displaying arbitrage opportunity: {str(e)}")
+                    continue
 
     def interactive_calculator(self, arb):
         logging.info("\nBetting Calculator:")
@@ -247,11 +283,11 @@ class ArbitrageFinder:
 
         logging.info("\nOptimal bets:")
         for outcome, bet in bets.items():
-            logging.info(f"  {arb['bookmakers'][outcome]}: ${bet:.2f} on {outcome} {arb['total_points']} @ {arb['best_odds'][outcome]:.2f}")
+            logging.info(f"  {arb['bookmakers'][outcome]}: ${bet:.2f} on {outcome} {arb['points']} @ {arb['best_odds'][outcome]:.2f}")
 
         logging.info(f"\nTotal stake: ${total_stake:.2f}")
         for outcome, ret in returns.items():
-            logging.info(f"Return if {outcome} {arb['total_points']}: ${ret:.2f}")
+            logging.info(f"Return if {outcome} {arb['points']}: ${ret:.2f}")
         
         profit = min(returns.values()) - total_stake
         logging.info(f"\nGuaranteed profit: ${profit:.2f} ({(profit/total_stake)*100:.2f}%)")
@@ -272,26 +308,65 @@ class ArbitrageFinder:
                 # Round bets while maintaining total stake
                 rounded_bets = {}
                 remaining_stake = bet_amount
+                teams = list(bets.keys())
+                
+                # Check if rounding unit is too large for the bet amount
+                if rounding > bet_amount:
+                    logging.error(f"Rounding unit (${rounding}) is larger than bet amount (${bet_amount})")
+                    return bet_amount, bets, {team: bet * odds[team] for team, bet in bets.items()}
                 
                 # Round all but the last bet
-                teams = list(bets.keys())
                 for team in teams[:-1]:
                     rounded_bet = round(bets[team] / rounding) * rounding
                     rounded_bets[team] = rounded_bet
                     remaining_stake -= rounded_bet
                 
-                # Assign remaining stake to last bet
-                rounded_bets[teams[-1]] = round(remaining_stake / rounding) * rounding
+                # Handle the last bet carefully
+                if remaining_stake < rounding / 2:
+                    # Redistribute the small remainder across other bets
+                    logging.warning(f"Remaining stake (${remaining_stake:.2f}) is too small to round. Redistributing...")
+                    adjustment = remaining_stake / (len(teams) - 1)
+                    for team in teams[:-1]:
+                        rounded_bets[team] += adjustment
+                    rounded_bets[teams[-1]] = 0
+                else:
+                    # Round the remaining stake normally
+                    rounded_bets[teams[-1]] = round(remaining_stake / rounding) * rounding
+                
+                # Verify the rounded bets
+                total_rounded = sum(rounded_bets.values())
+                if abs(total_rounded - bet_amount) > 0.01:  # Allow for small floating-point differences
+                    logging.warning(f"Rounding resulted in stake mismatch. Original: ${bet_amount:.2f}, Rounded: ${total_rounded:.2f}")
+                
                 bets = rounded_bets
             
             total_stake = sum(bets.values())
             returns = {team: bets[team] * odds[team] for team in odds.keys()}
+            
+            # Verify the arbitrage still exists after rounding
+            min_return = min(returns.values())
+            max_return = max(returns.values())
+            if min_return < total_stake:
+                logging.error(f"Warning: Rounding has eliminated the arbitrage. Minimum return (${min_return:.2f}) is less than stake (${total_stake:.2f})")
+            if max_return - min_return > 0.01:
+                logging.warning(f"Returns are not perfectly balanced. Variation: ${max_return - min_return:.2f}")
 
             return total_stake, bets, returns
+        
+        except KeyError as e:
+            logging.error(f"Missing key in arbitrage data: {str(e)}")
+            print(f"Error: Invalid arbitrage data structure. Check the logs for details.")
+            return 0, {}, {}
+        except ZeroDivisionError:
+            logging.error("Invalid odds (zero or negative) encountered")
+            print("Error: Invalid odds encountered. Check the logs for details.")
+            return 0, {}, {}
         except Exception as e:
-            logging.error(f"Error calculating bets: {str(e)}")
+            logging.error(f"Unexpected error calculating bets: {str(e)}")
+            print("Error: An unexpected error occurred. Check the logs for details.")
             return 0, {}, {}
 
     def format_date(self, date_string):
         date = datetime.fromisoformat(date_string.replace('Z', '+00:00'))
         return date.strftime('%Y-%m-%d %H:%M:%S %Z')
+
