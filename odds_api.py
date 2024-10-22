@@ -33,6 +33,9 @@ class OddsAPI:
         }
         try:
             response = requests.get(url, params=params)
+            if response.status_code == 422:
+                print(f"Skipping {sport}: Unprocessable Entity (possibly no active games)")
+                return []
             response.raise_for_status()
             return response.json()
         except requests.RequestException as e:

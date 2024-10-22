@@ -26,10 +26,15 @@ class ArbitrageFinder:
                     if implied_prob < 1:
                         profit_margin = (1 - implied_prob) * 100
                         if profit_margin >= self.config.cutoff:
+                            total_stake = 100  # Assuming a total stake of $100
+                            stakes = {team: total_stake / odd for team, odd in best_odds.items()}
+                            expected_profit = min(stake * odd for stake, odd in zip(stakes.values(), best_odds.values())) - total_stake
                             arbs.append({
                                 'event': event['home_team'] + ' vs ' + event['away_team'],
                                 'profit_margin': profit_margin,
-                                'best_odds': best_odds
+                                'best_odds': best_odds,
+                                'stakes': stakes,
+                                'expected_profit': expected_profit
                             })
             else:
                 print(f"Skipping invalid event data: {event}")
@@ -54,8 +59,9 @@ class ArbitrageFinder:
             for arb in arbs:
                 print(f"Event: {arb['event']}")
                 print(f"Profit Margin: {arb['profit_margin']:.2f}%")
-                print("Best Odds:")
+                print(f"Expected Profit: ${arb['expected_profit']:.2f}")
+                print("Best Odds and Stakes:")
                 for team, odd in arb['best_odds'].items():
-                    stake = 100 / odd
+                    stake = arb['stakes'][team]
                     print(f"  {team}: {odd} (Stake: ${stake:.2f})")
                 print()
