@@ -15,8 +15,13 @@ class OddsAPI:
             'api_key': self.api_key,
             'all': 'true'
         }
-        response = requests.get(url, params=params)
-        return response.json()
+        try:
+            response = requests.get(url, params=params)
+            response.raise_for_status()
+            return response.json()
+        except requests.RequestException as e:
+            print(f"Error fetching sports data: {e}")
+            return []
 
     def get_odds(self, sport):
         url = f"{self.base_url}/sports/{sport}/odds"
@@ -26,5 +31,10 @@ class OddsAPI:
             'markets': 'h2h',
             'oddsFormat': 'decimal'
         }
-        response = requests.get(url, params=params)
-        return response.json()
+        try:
+            response = requests.get(url, params=params)
+            response.raise_for_status()
+            return response.json()
+        except requests.RequestException as e:
+            print(f"Error fetching odds data for {sport}: {e}")
+            return []
