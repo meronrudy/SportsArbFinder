@@ -1,6 +1,7 @@
 from odds_api import OddsAPI
 import json
 from datetime import datetime
+from collections import defaultdict
 
 class ArbitrageFinder:
     def __init__(self, config):
@@ -50,47 +51,49 @@ class ArbitrageFinder:
     def calculate_arbitrage(self, odds):
         arbs = []
         for event in odds:
-            best_odds, bookmakers, total_points = self.get_best_odds(event)
-            if best_odds:
-                implied_prob = 1/best_odds['Over'] + 1/best_odds['Under']
-                
-                if implied_prob < 1:
-                    profit_margin = (1 / implied_prob - 1) * 100
-                    if profit_margin >= self.config.cutoff:
-                        arbs.append({
-                            'event': event['home_team'] + ' vs ' + event['away_team'],
-                            'profit_margin': profit_margin,
-                            'best_odds': best_odds,
-                            'bookmakers': bookmakers,
-                            'commence_time': event['commence_time'],
-                            'total_points': total_points
-                        })
+            best_odds_list = self.get_best_odds(event)
+            for best_odds, bookmakers, total_points in best_odds_list:
+                if best_odds:
+                    implied_prob = 1/best_odds['Over'] + 1/best_odds['Under']
+                    
+                    if implied_prob < 1:
+                        profit_margin = (1 / implied_prob - 1) * 100
+                        if profit_margin >= self.config.cutoff:
+                            arbs.append({
+                                'event': event['home_team'] + ' vs ' + event['away_team'],
+                                'profit_margin': profit_margin,
+                                'best_odds': best_odds,
+                                'bookmakers': bookmakers,
+                                'commence_time': event['commence_time'],
+                                'total_points': total_points
+                            })
         return arbs
 
     def get_best_odds(self, event):
-        best_odds = {'Over': 0, 'Under': 0}
-        bookmakers = {'Over': '', 'Under': ''}
-        total_points = None
+        odds_by_points = defaultdict(lambda: {'Over': 0, 'Under': 0})
+        bookmakers_by_points = defaultdict(lambda: {'Over': '', 'Under': ''})
+        
         if 'bookmakers' in event and isinstance(event['bookmakers'], list):
             for bookmaker in event['bookmakers']:
                 if 'markets' in bookmaker and isinstance(bookmaker['markets'], list):
                     for market in bookmaker['markets']:
                         if market['key'] == self.config.market:
                             for outcome in market['outcomes']:
-                                if outcome['name'] == 'Over':
-                                    if outcome['price'] > best_odds['Over']:
-                                        best_odds['Over'] = outcome['price']
-                                        bookmakers['Over'] = bookmaker['title']
-                                        total_points = outcome.get('point')
-                                elif outcome['name'] == 'Under':
-                                    if outcome['price'] > best_odds['Under']:
-                                        best_odds['Under'] = outcome['price']
-                                        bookmakers['Under'] = bookmaker['title']
-                                        total_points = outcome.get('point')
+                                total_points = outcome.get('point')
+                                if total_points is not None:
+                                    if outcome['name'] == 'Over' and outcome['price'] > odds_by_points[total_points]['Over']:
+                                        odds_by_points[total_points]['Over'] = outcome['price']
+                                        bookmakers_by_points[total_points]['Over'] = bookmaker['title']
+                                    elif outcome['name'] == 'Under' and outcome['price'] > odds_by_points[total_points]['Under']:
+                                        odds_by_points[total_points]['Under'] = outcome['price']
+                                        bookmakers_by_points[total_points]['Under'] = bookmaker['title']
         
-        if best_odds['Over'] == 0 or best_odds['Under'] == 0:
-            return None, None, None
-        return best_odds, bookmakers, total_points
+        best_odds_list = []
+        for total_points, odds in odds_by_points.items():
+            if odds['Over'] > 0 and odds['Under'] > 0:
+                best_odds_list.append((odds, bookmakers_by_points[total_points], total_points))
+        
+        return best_odds_list
 
     def output_results(self, arbs, sport_title):
         if arbs:
@@ -103,7 +106,7 @@ class ArbitrageFinder:
                 print("  Best Odds and Bookmakers:")
                 for outcome, odd in arb['best_odds'].items():
                     bookmaker = arb['bookmakers'][outcome]
-                    print(f"    {outcome}: {odd:.2f} ({bookmaker})")
+                    print(f"    {outcome} {arb['total_points']}: {odd:.2f} ({bookmaker})")
                 
                 if self.config.interactive:
                     self.interactive_calculator(arb)
