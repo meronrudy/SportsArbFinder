@@ -15,43 +15,54 @@ class ArbitrageFinder:
                             format='%(asctime)s - %(levelname)s - %(message)s')
 
     def find_arbitrage(self):
-        sports = self.odds_api.get_sports()
-        logging.info(f"Analyzing {len(sports)} in-season sports...")
-        
-        total_events = 0
-        total_arbs = 0
-        all_arbs = []
-        
-        for sport in sports:
-            odds = self.odds_api.get_odds(sport['key'])
-            if self.odds_api.api_limit_reached:
-                logging.warning("API limit reached. Stopping analysis.")
-                break
-            if odds:
-                total_events += len(odds)
-                arbs = self.calculate_arbitrage(odds)
-                total_arbs += len(arbs)
-                all_arbs.extend(arbs)
-                if not self.config.unformatted and arbs:
-                    self.output_results(arbs, sport['title'])
+        try:
+            sports = self.odds_api.get_sports()
+            if not sports:
+                logging.error("Failed to fetch sports data")
+                return self.create_empty_result()
 
-        logging.info(f"\nSummary:")
-        logging.info(f"Total events analyzed: {total_events}")
-        logging.info(f"Total arbitrage opportunities found: {total_arbs}")
-        
-        if not self.config.offline_file:
-            logging.info("\nAPI Usage:")
-            logging.info(f"Remaining requests: {self.odds_api.remaining_requests}")
-            logging.info(f"Used requests: {self.odds_api.used_requests}")
+            logging.info(f"Analyzing {len(sports)} in-season sports...")
+            
+            total_events = 0
+            total_arbs = 0
+            all_arbs = []
+            
+            for sport in sports:
+                try:
+                    odds = self.odds_api.get_odds(sport['key'])
+                    if self.odds_api.api_limit_reached:
+                        logging.warning("API limit reached. Stopping analysis.")
+                        break
+                    if odds:
+                        total_events += len(odds)
+                        arbs = self.calculate_arbitrage(odds)
+                        total_arbs += len(arbs)
+                        all_arbs.extend(arbs)
+                        if not self.config.unformatted and arbs:
+                            self.output_results(arbs, sport['title'])
+                except Exception as e:
+                    logging.error(f"Error processing sport {sport['key']}: {str(e)}")
+                    continue
 
+            return {
+                "total_events": total_events,
+                "total_arbitrage_opportunities": total_arbs,
+                "arbitrage_opportunities": all_arbs,
+                "api_usage": {
+                    "remaining_requests": self.odds_api.remaining_requests,
+                    "used_requests": self.odds_api.used_requests
+                } if not self.config.offline_file else None
+            }
+        except Exception as e:
+            logging.error(f"Fatal error in find_arbitrage: {str(e)}")
+            return self.create_empty_result()
+
+    def create_empty_result(self):
         return {
-            "total_events": total_events,
-            "total_arbitrage_opportunities": total_arbs,
-            "arbitrage_opportunities": all_arbs,
-            "api_usage": {
-                "remaining_requests": self.odds_api.remaining_requests,
-                "used_requests": self.odds_api.used_requests
-            } if not self.config.offline_file else None
+            "total_events": 0,
+            "total_arbitrage_opportunities": 0,
+            "arbitrage_opportunities": [],
+            "api_usage": None
         }
 
     def calculate_arbitrage(self, odds):
@@ -156,9 +167,40 @@ class ArbitrageFinder:
             return None, None, None
 
     def get_best_odds_spreads(self, event):
-        # Implement this method similar to get_best_odds_totals if needed
-        # For now, return a placeholder
-        return None, None, None
+        odds_by_points = defaultdict(lambda: {'Home': 0, 'Away': 0})
+        bookmakers_by_points = defaultdict(lambda: {'Home': '', 'Away': ''})
+        
+        if 'bookmakers' in event and isinstance(event['bookmakers'], list):
+            for bookmaker in event['bookmakers']:
+                if 'markets' in bookmaker and isinstance(bookmaker['markets'], list):
+                    for market in bookmaker['markets']:
+                        if market['key'] == 'spreads':
+                            for outcome in market['outcomes']:
+                                point = outcome.get('point')
+                                if point is not None:
+                                    team_type = 'Home' if outcome['name'] == event['home_team'] else 'Away'
+                                    if outcome['price'] > odds_by_points[point][team_type]:
+                                        odds_by_points[point][team_type] = outcome['price']
+                                        bookmakers_by_points[point][team_type] = bookmaker['title']
+        
+        best_odds = None
+        best_bookmakers = None
+        best_points = None
+        best_implied_prob = float('inf')
+
+        for point, odds in odds_by_points.items():
+            if odds['Home'] > 0 and odds['Away'] > 0:
+                implied_prob = 1/odds['Home'] + 1/odds['Away']
+                if implied_prob < best_implied_prob:
+                    best_implied_prob = implied_prob
+                    best_odds = odds.copy()
+                    best_bookmakers = bookmakers_by_points[point]
+                    best_points = point
+
+        if best_odds:
+            return best_odds, best_bookmakers, best_points
+        else:
+            return None, None, None
 
     def output_results(self, arbs, sport_title):
         if arbs:
@@ -215,23 +257,40 @@ class ArbitrageFinder:
         logging.info(f"\nGuaranteed profit: ${profit:.2f} ({(profit/total_stake)*100:.2f}%)")
 
     def calculate_bets(self, arb, bet_amount, rounding):
-        odds = arb['best_odds']
-        implied_probs = {team: 1/odd for team, odd in odds.items()}
-        total_implied_prob = sum(implied_probs.values())
-        
-        # Calculate the actual profit margin
-        profit_margin = (1 / total_implied_prob) - 1
-        
-        # Scale bets to the user's input amount
-        bets = {team: bet_amount * (prob / total_implied_prob) for team, prob in implied_probs.items()}
-        
-        if rounding:
-            bets = {team: round(bet / rounding) * rounding for team, bet in bets.items()}
-        
-        total_stake = sum(bets.values())
-        returns = {team: bets[team] * odds[team] for team in odds.keys()}
+        try:
+            odds = arb['best_odds']
+            implied_probs = {team: 1/odd for team, odd in odds.items()}
+            total_implied_prob = sum(implied_probs.values())
+            
+            # Calculate the actual profit margin
+            profit_margin = (1 / total_implied_prob) - 1
+            
+            # Calculate initial bets
+            bets = {team: bet_amount * (prob / total_implied_prob) for team, prob in implied_probs.items()}
+            
+            if rounding:
+                # Round bets while maintaining total stake
+                rounded_bets = {}
+                remaining_stake = bet_amount
+                
+                # Round all but the last bet
+                teams = list(bets.keys())
+                for team in teams[:-1]:
+                    rounded_bet = round(bets[team] / rounding) * rounding
+                    rounded_bets[team] = rounded_bet
+                    remaining_stake -= rounded_bet
+                
+                # Assign remaining stake to last bet
+                rounded_bets[teams[-1]] = round(remaining_stake / rounding) * rounding
+                bets = rounded_bets
+            
+            total_stake = sum(bets.values())
+            returns = {team: bets[team] * odds[team] for team in odds.keys()}
 
-        return total_stake, bets, returns
+            return total_stake, bets, returns
+        except Exception as e:
+            logging.error(f"Error calculating bets: {str(e)}")
+            return 0, {}, {}
 
     def format_date(self, date_string):
         date = datetime.fromisoformat(date_string.replace('Z', '+00:00'))
