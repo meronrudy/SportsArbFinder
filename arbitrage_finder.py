@@ -342,7 +342,8 @@ class ArbitrageFinder:
 
     def calculate_bets(self, arb, bet_amount, rounding):
         try:
-            odds = arb['best_odds']
+            # Exclude 'spread' key from odds and ensure consistent team names
+            odds = {team: odd for team, odd in arb['best_odds'].items() if team != 'spread'}
             implied_probs = {team: 1/odd for team, odd in odds.items()}
             total_implied_prob = sum(implied_probs.values())
             
@@ -356,7 +357,7 @@ class ArbitrageFinder:
                 # Round bets while maintaining total stake
                 rounded_bets = {}
                 remaining_stake = bet_amount
-                teams = list(bets.keys())
+                teams = list(odds.keys())  # Use filtered odds keys
                 
                 # Check if rounding unit is too large for the bet amount
                 if rounding > bet_amount:
@@ -394,6 +395,16 @@ class ArbitrageFinder:
             # Verify the arbitrage still exists after rounding
             min_return = min(returns.values())
             max_return = max(returns.values())
+            
+            # Log detailed bet information for debugging
+            logging.info(f"\nBet Details:")
+            for team in odds.keys():
+                logging.info(f"  {team}:")
+                logging.info(f"    Odds: {odds[team]:.2f}")
+                logging.info(f"    Implied Prob: {implied_probs[team]:.4f}")
+                logging.info(f"    Bet Amount: ${bets[team]:.2f}")
+                logging.info(f"    Return: ${returns[team]:.2f}")
+            
             if min_return < total_stake:
                 logging.error(f"Warning: Rounding has eliminated the arbitrage. Minimum return (${min_return:.2f}) is less than stake (${total_stake:.2f})")
             if max_return - min_return > 0.01:
