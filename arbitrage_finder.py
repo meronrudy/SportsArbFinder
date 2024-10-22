@@ -13,6 +13,7 @@ class ArbitrageFinder:
         
         total_events = 0
         total_arbs = 0
+        all_arbs = []
         
         for sport in sports:
             odds = self.odds_api.get_odds(sport['key'])
@@ -23,16 +24,29 @@ class ArbitrageFinder:
                 total_events += len(odds)
                 arbs = self.calculate_arbitrage(odds)
                 total_arbs += len(arbs)
-                self.output_results(arbs, sport['title'])
+                all_arbs.extend(arbs)
+                if not self.config.unformatted:
+                    self.output_results(arbs, sport['title'])
 
-        print(f"\nSummary:")
-        print(f"Total events analyzed: {total_events}")
-        print(f"Total arbitrage opportunities found: {total_arbs}")
-        
-        if not self.config.offline_file:
-            print("\nAPI Usage:")
-            print(f"Remaining requests: {self.odds_api.remaining_requests}")
-            print(f"Used requests: {self.odds_api.used_requests}")
+        if not self.config.unformatted:
+            print(f"\nSummary:")
+            print(f"Total events analyzed: {total_events}")
+            print(f"Total arbitrage opportunities found: {total_arbs}")
+            
+            if not self.config.offline_file:
+                print("\nAPI Usage:")
+                print(f"Remaining requests: {self.odds_api.remaining_requests}")
+                print(f"Used requests: {self.odds_api.used_requests}")
+
+        return {
+            "total_events": total_events,
+            "total_arbitrage_opportunities": total_arbs,
+            "arbitrage_opportunities": all_arbs,
+            "api_usage": {
+                "remaining_requests": self.odds_api.remaining_requests,
+                "used_requests": self.odds_api.used_requests
+            } if not self.config.offline_file else None
+        }
 
     def calculate_arbitrage(self, odds):
         arbs = []

@@ -1,4 +1,5 @@
 import argparse
+import json
 from arbitrage_finder import ArbitrageFinder
 from config import Config
 
@@ -15,7 +16,12 @@ def main():
 
     config = Config(args.region, args.unformatted, args.cutoff, args.api_key, args.interactive, args.save, args.offline)
     arbitrage_finder = ArbitrageFinder(config)
-    arbitrage_finder.find_arbitrage()
+    results = arbitrage_finder.find_arbitrage()
+
+    if config.unformatted:
+        with open('arbitrage_results.json', 'w') as f:
+            json.dump(results, f, indent=2)
+        print(f"Unformatted results have been written to arbitrage_results.json")
 
 if __name__ == "__main__":
     main()
