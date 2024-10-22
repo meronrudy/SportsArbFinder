@@ -19,7 +19,7 @@ def calculate_profit_and_payout(arb, wager):
     return profit, payout
 
 def generate_html(data):
-    html = """
+    html_template = """
     <!DOCTYPE html>
     <html lang="en">
     <head>
@@ -90,6 +90,21 @@ def generate_html(data):
                 margin-top: 10px;
                 font-weight: bold;
             }}
+            .explanation {{
+                background-color: #e8f6fe;
+                padding: 15px;
+                border-radius: 5px;
+                margin-bottom: 20px;
+            }}
+            .explanation h2 {{
+                color: #2980b9;
+            }}
+            .explanation ul, .explanation ol {{
+                padding-left: 20px;
+            }}
+            .explanation li {{
+                margin-bottom: 10px;
+            }}
         </style>
         <script>
             function updateProfits() {{
@@ -105,16 +120,48 @@ def generate_html(data):
                     const payout = wager + profit;
                     opp.querySelector('.profit').textContent = profit.toFixed(2);
                     opp.querySelector('.payout').textContent = payout.toFixed(2);
+                    
+                    const bets = opp.querySelectorAll('.bet-amount');
+                    const totalImpliedProb = parseFloat(opp.getAttribute('data-total-implied-prob'));
+                    bets.forEach(bet => {{
+                        const impliedProb = parseFloat(bet.getAttribute('data-implied-prob'));
+                        const betAmount = (wager * impliedProb / totalImpliedProb).toFixed(2);
+                        bet.textContent = betAmount;
+                    }});
                 }}
             }}
+            
+            // Initial update
+            updateProfits();
         </script>
     </head>
     <body>
         <h1>Arbitrage Opportunities Viewer</h1>
         <div id="wager-input">
             <label for="wager">Enter wager amount: $</label>
-            <input type="number" id="wager" min="0" step="0.01">
+            <input type="number" id="wager" min="0" step="0.01" value="100">
             <button onclick="updateProfits()">Update Profits</button>
+        </div>
+        <div class="explanation">
+            <h2>How to Interpret H2H (Head-to-Head) Opportunities</h2>
+            <p>In H2H betting, you're presented with odds for each possible outcome of an event. Here's how to understand the information:</p>
+            <ul>
+                <li><strong>Event:</strong> The teams or participants involved in the match.</li>
+                <li><strong>Profit Margin:</strong> The percentage of profit you can make if you bet on all outcomes optimally.</li>
+                <li><strong>Date:</strong> When the event is scheduled to take place.</li>
+                <li><strong>Odds:</strong> The payout multiplier for each outcome. For example, odds of 2.00 mean you'll receive $2 for every $1 bet if that outcome occurs.</li>
+                <li><strong>Bookmaker:</strong> The betting platform offering the best odds for each outcome.</li>
+                <li><strong>Profit:</strong> The amount you'll gain based on your entered wager.</li>
+                <li><strong>Payout:</strong> The total amount you'll receive (initial wager + profit) if you bet optimally on all outcomes.</li>
+            </ul>
+            <p>To capitalize on an arbitrage opportunity:</p>
+            <ol>
+                <li>Enter your total desired wager in the input box above.</li>
+                <li>Click "Update Profits" to see potential profits for each opportunity.</li>
+                <li>For each opportunity, place bets on all outcomes, distributing your wager proportionally to the odds to ensure equal profit regardless of the result.</li>
+                <li>Use the specified bookmakers to get the best odds for each outcome.</li>
+            </ol>
+            <p><strong>Note:</strong> Always double-check the current odds before placing bets, as they can change rapidly.</p>
         </div>
         <div class="summary">
             <h2>Summary</h2>
@@ -133,21 +180,25 @@ def generate_html(data):
 
     opportunities_html = ""
     for arb in sorted_arbs:
+        total_implied_prob = sum(1/odd for odd in arb['best_odds'].values())
         opportunities_html += f"""
-        <div class="opportunity" data-profit-margin="{arb['profit_margin']}">
+        <div class="opportunity" data-profit-margin="{arb['profit_margin']}" data-total-implied-prob="{total_implied_prob}">
             <h2>{arb['event']}</h2>
             <p>Profit Margin: {arb['profit_margin']:.2f}%</p>
             <p>Date: {format_date(arb['commence_time'])}</p>
+            <p>Market: {arb.get('market', 'N/A')}</p>
             <p>Total Points: {arb.get('total_points', 'N/A')}</p>
             <div class="odds">
         """
         for outcome, odd in arb['best_odds'].items():
             bookmaker = arb['bookmakers'][outcome]
+            implied_prob = 1 / odd
             opportunities_html += f"""
                 <div>
                     <h3>{outcome}</h3>
                     <p>Odds: {odd:.2f}</p>
                     <p>Bookmaker: {bookmaker}</p>
+                    <p>Bet Amount: $<span class="bet-amount" data-implied-prob="{implied_prob}">0.00</span></p>
                 </div>
             """
         opportunities_html += """
@@ -159,7 +210,7 @@ def generate_html(data):
         </div>
         """
 
-    return html.format(
+    return html_template.format(
         total_events=data['total_events'],
         total_arbs=data['total_arbitrage_opportunities'],
         opportunities=opportunities_html

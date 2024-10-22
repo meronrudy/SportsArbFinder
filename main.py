@@ -23,6 +23,7 @@ def main():
     with open('arbitrage_results.json', 'w') as f:
         json.dump(results, f, indent=2)
     print(f"Results have been written to arbitrage_results.json")
+    print(f"Detailed logs can be found in arbitrage_finder.log")
 
     if not config.unformatted:
         # Display interactive UI or other formatted output here
