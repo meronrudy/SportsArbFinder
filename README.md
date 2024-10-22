@@ -1,6 +1,8 @@
 # Sports Betting Arbitrage Finder
 
-This project is an advanced arbitrage finder for sports betting. It identifies arbitrage opportunities across multiple bookmakers and calculates optimal bet amounts for each outcome to guarantee a profit.
+This project is an advanced arbitrage finder for sports betting. It identifies arbitrage opportunities across multiple bookmakers and calculates optimal bet amounts for each outcome to guarantee a profit. 
+
+Uses The Odds API.
 
 ## Features
 
@@ -11,36 +13,53 @@ This project is an advanced arbitrage finder for sports betting. It identifies a
 - Interactive betting calculator
 - Offline mode for testing and development
 - Ability to save API responses for later analysis
+- Easy run script for quick setup and execution
 
 ## Installation
 
 1. Clone this repository:   ```
-   git clone https://github.com/yourusername/sports-betting-arbitrage-finder.git
-   cd sports-betting-arbitrage-finder   ```
+   git clone https://github.com/carterlasalle/SportsArbFinder
+   cd SportsArbFinder   ```
 
 2. Install the required packages:   ```
    pip install -r requirements.txt   ```
 
-3. Create a `.env` file in the project root and add your API key:   ```
+3. Create a `.env` file in the project root and add your API key (get one [here](https://the-odds-api.com/)):   ```
    ODDS_API_KEY=your_api_key_here   ```
 
 ## Usage
 
-Run the main script with the following command:
-```python main.py [options]```
+### Easy Run (Recommended for most users)
+
+1. Run the easy run script:   ```
+   python easy_run.py   ```
+
+2. Follow the prompts to configure your run:
+   - Choose a region (eu/us/uk/au)
+   - Set the minimum profit margin percentage
+   - Enable or disable the interactive betting calculator
+   - Choose to use offline data or fetch new data
+
+3. The script will automatically run the arbitrage finder and launch the viewer in your default web browser.
+
+### Advanced Usage
+
+For more control over the execution, you can use the main script directly:
+
+python main.py [options]
 
 
-### Command-line Options
+#### Command-line Options
 
 - `-r`, `--region`: Specify the region for bookmakers (eu, us, uk, au). Default is "us".
-- `-u`, `--unformatted`: Output unformatted JSON data.
+- `-u`, `--unformatted`: Skip interactive UI and only output JSON data.
 - `-c`, `--cutoff`: Set the minimum profit margin percentage. Default is 0.
 - `--api-key`: Provide the API key for The Odds API (overrides the .env file).
 - `-i`, `--interactive`: Enable the interactive betting calculator.
 - `-s`, `--save`: Save the API response to a specified file.
 - `-o`, `--offline`: Use offline data from a specified file instead of making API calls.
 
-### Examples
+#### Examples
 
 1. Basic usage (US region):
    ```
@@ -59,12 +78,12 @@ Run the main script with the following command:
 
 4. Save API response to a file:
    ```
-   python main.py -s api_response.json
+   python main.py -s response_data.json
    ```
 
 5. Use offline data:
    ```
-   python main.py -o saved_data.json
+   python main.py -o response_data.json
    ```
 
 ## How It Works
@@ -75,6 +94,8 @@ Run the main script with the following command:
 4. If the combined implied probability is less than 100%, an arbitrage opportunity exists.
 5. The script calculates the profit margin and, if it meets the cutoff, displays the opportunity.
 6. In interactive mode, users can input a stake amount and see the optimal bet distribution.
+7. Results are saved to `arbitrage_results.json`.
+8. The viewer script generates an HTML page to display the results and launches it in the default web browser.
 
 ## Project Structure
 
@@ -82,6 +103,8 @@ Run the main script with the following command:
 - `arbitrage_finder.py`: Contains the core logic for finding arbitrage opportunities.
 - `odds_api.py`: Handles API requests to The Odds API.
 - `config.py`: Stores configuration settings.
+- `easy_run.py`: Provides a user-friendly interface for running the arbitrage finder.
+- `viewer.py`: Generates an HTML viewer for the arbitrage results.
 
 ## Limitations
 
@@ -100,4 +123,3 @@ This project is open source and available under the [MIT License](LICENSE).
 ## Disclaimer
 
 This tool is for educational purposes only. The authors are not responsible for any financial losses incurred from using this software. Always gamble responsibly and be aware of the risks involved in sports betting.
-
