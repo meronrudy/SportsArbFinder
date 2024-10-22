@@ -12,9 +12,10 @@ def main():
     parser.add_argument("-i", "--interactive", action="store_true", help="Enable interactive betting calculator")
     parser.add_argument("-s", "--save", type=str, help="Save API response to a file")
     parser.add_argument("-o", "--offline", type=str, help="Use offline data from a file instead of making API calls")
+    parser.add_argument("--market", choices=["h2h", "spreads", "totals", "outrights", "h2h_lay", "outrights_lay"], default="h2h", help="Betting market to analyze")
     args = parser.parse_args()
 
-    config = Config(args.region, args.unformatted, args.cutoff, args.api_key, args.interactive, args.save, args.offline)
+    config = Config(args.region, args.unformatted, args.cutoff, args.api_key, args.interactive, args.save, args.offline, args.market)
     arbitrage_finder = ArbitrageFinder(config)
     results = arbitrage_finder.find_arbitrage()
 

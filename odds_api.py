@@ -44,7 +44,7 @@ class OddsAPI:
         params = {
             'api_key': self.api_key,
             'regions': self.config.region,
-            'markets': 'h2h',
+            'markets': self.config.market,  # Use the new market parameter
             'oddsFormat': 'decimal',
             'dateFormat': 'iso'
         }

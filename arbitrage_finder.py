@@ -25,18 +25,17 @@ class ArbitrageFinder:
                 arbs = self.calculate_arbitrage(odds)
                 total_arbs += len(arbs)
                 all_arbs.extend(arbs)
-                if not self.config.unformatted:
+                if not self.config.unformatted and arbs:
                     self.output_results(arbs, sport['title'])
 
-        if not self.config.unformatted:
-            print(f"\nSummary:")
-            print(f"Total events analyzed: {total_events}")
-            print(f"Total arbitrage opportunities found: {total_arbs}")
-            
-            if not self.config.offline_file:
-                print("\nAPI Usage:")
-                print(f"Remaining requests: {self.odds_api.remaining_requests}")
-                print(f"Used requests: {self.odds_api.used_requests}")
+        print(f"\nSummary:")
+        print(f"Total events analyzed: {total_events}")
+        print(f"Total arbitrage opportunities found: {total_arbs}")
+        
+        if not self.config.offline_file:
+            print("\nAPI Usage:")
+            print(f"Remaining requests: {self.odds_api.remaining_requests}")
+            print(f"Used requests: {self.odds_api.used_requests}")
 
         return {
             "total_events": total_events,
@@ -51,9 +50,10 @@ class ArbitrageFinder:
     def calculate_arbitrage(self, odds):
         arbs = []
         for event in odds:
-            best_odds, bookmakers = self.get_best_odds(event)
+            best_odds, bookmakers, total_points = self.get_best_odds(event)
             if best_odds:
-                implied_prob = sum(1 / odd for odd in best_odds.values())
+                implied_prob = 1/best_odds['Over'] + 1/best_odds['Under']
+                
                 if implied_prob < 1:
                     profit_margin = (1 / implied_prob - 1) * 100
                     if profit_margin >= self.config.cutoff:
@@ -62,23 +62,35 @@ class ArbitrageFinder:
                             'profit_margin': profit_margin,
                             'best_odds': best_odds,
                             'bookmakers': bookmakers,
-                            'commence_time': event['commence_time']
+                            'commence_time': event['commence_time'],
+                            'total_points': total_points
                         })
         return arbs
 
     def get_best_odds(self, event):
-        best_odds = {}
-        bookmakers = {}
+        best_odds = {'Over': 0, 'Under': 0}
+        bookmakers = {'Over': '', 'Under': ''}
+        total_points = None
         if 'bookmakers' in event and isinstance(event['bookmakers'], list):
             for bookmaker in event['bookmakers']:
                 if 'markets' in bookmaker and isinstance(bookmaker['markets'], list):
                     for market in bookmaker['markets']:
-                        if market['key'] == 'h2h':
+                        if market['key'] == self.config.market:
                             for outcome in market['outcomes']:
-                                if outcome['name'] not in best_odds or outcome['price'] > best_odds[outcome['name']]:
-                                    best_odds[outcome['name']] = outcome['price']
-                                    bookmakers[outcome['name']] = bookmaker['title']
-        return (best_odds, bookmakers) if len(best_odds) > 1 else (None, None)
+                                if outcome['name'] == 'Over':
+                                    if outcome['price'] > best_odds['Over']:
+                                        best_odds['Over'] = outcome['price']
+                                        bookmakers['Over'] = bookmaker['title']
+                                        total_points = outcome.get('point')
+                                elif outcome['name'] == 'Under':
+                                    if outcome['price'] > best_odds['Under']:
+                                        best_odds['Under'] = outcome['price']
+                                        bookmakers['Under'] = bookmaker['title']
+                                        total_points = outcome.get('point')
+        
+        if best_odds['Over'] == 0 or best_odds['Under'] == 0:
+            return None, None, None
+        return best_odds, bookmakers, total_points
 
     def output_results(self, arbs, sport_title):
         if arbs:
@@ -87,10 +99,11 @@ class ArbitrageFinder:
                 print(f"  Event: {arb['event']}")
                 print(f"  Date: {self.format_date(arb['commence_time'])}")
                 print(f"  Profit Margin: {arb['profit_margin']:.2f}%")
+                print(f"  Total Points: {arb['total_points']}")
                 print("  Best Odds and Bookmakers:")
-                for team, odd in arb['best_odds'].items():
-                    bookmaker = arb['bookmakers'][team]
-                    print(f"    {team}: {odd:.2f} ({bookmaker})")
+                for outcome, odd in arb['best_odds'].items():
+                    bookmaker = arb['bookmakers'][outcome]
+                    print(f"    {outcome}: {odd:.2f} ({bookmaker})")
                 
                 if self.config.interactive:
                     self.interactive_calculator(arb)
@@ -116,12 +129,12 @@ class ArbitrageFinder:
         total_stake, bets, returns = self.calculate_bets(arb, bet_amount, rounding)
 
         print("\nOptimal bets:")
-        for team, bet in bets.items():
-            print(f"  {arb['bookmakers'][team]}: ${bet:.2f} on {team} @ {arb['best_odds'][team]:.2f}")
+        for outcome, bet in bets.items():
+            print(f"  {arb['bookmakers'][outcome]}: ${bet:.2f} on {outcome} {arb['total_points']} @ {arb['best_odds'][outcome]:.2f}")
 
         print(f"\nTotal stake: ${total_stake:.2f}")
-        for team, ret in returns.items():
-            print(f"Return if {team} wins: ${ret:.2f}")
+        for outcome, ret in returns.items():
+            print(f"Return if {outcome} {arb['total_points']}: ${ret:.2f}")
         
         profit = min(returns.values()) - total_stake
         print(f"\nGuaranteed profit: ${profit:.2f} ({(profit/total_stake)*100:.2f}%)")

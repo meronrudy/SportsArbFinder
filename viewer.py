@@ -3,6 +3,20 @@ import webbrowser
 import os
 from http.server import HTTPServer, SimpleHTTPRequestHandler
 import threading
+import signal
+import sys
+from datetime import datetime, timezone
+
+def format_date(date_string):
+    date = datetime.fromisoformat(date_string.replace('Z', '+00:00'))
+    return date.strftime('%Y-%m-%d %I:%M %p %Z')
+
+def calculate_profit_and_payout(arb, wager):
+    total_implied_prob = sum(1/odd for odd in arb['best_odds'].values())
+    profit_margin = (1 / total_implied_prob - 1)
+    profit = wager * profit_margin
+    payout = wager + profit
+    return profit, payout
 
 def generate_html(data):
     html = """
@@ -53,10 +67,55 @@ def generate_html(data):
                 margin: 5px;
                 border-radius: 3px;
             }}
+            #wager-input {{
+                margin-bottom: 20px;
+                padding: 10px;
+                background-color: #e8f6fe;
+                border-radius: 5px;
+            }}
+            #wager-input input {{
+                margin-left: 10px;
+                padding: 5px;
+            }}
+            #wager-input button {{
+                margin-left: 10px;
+                padding: 5px 10px;
+                background-color: #2980b9;
+                color: white;
+                border: none;
+                border-radius: 3px;
+                cursor: pointer;
+            }}
+            .profit-payout {{
+                margin-top: 10px;
+                font-weight: bold;
+            }}
         </style>
+        <script>
+            function updateProfits() {{
+                const wager = parseFloat(document.getElementById('wager').value);
+                if (isNaN(wager) || wager <= 0) {{
+                    alert('Please enter a valid wager amount.');
+                    return;
+                }}
+                const opportunities = document.getElementsByClassName('opportunity');
+                for (let opp of opportunities) {{
+                    const profitMargin = parseFloat(opp.getAttribute('data-profit-margin')) / 100;
+                    const profit = wager * profitMargin;
+                    const payout = wager + profit;
+                    opp.querySelector('.profit').textContent = profit.toFixed(2);
+                    opp.querySelector('.payout').textContent = payout.toFixed(2);
+                }}
+            }}
+        </script>
     </head>
     <body>
         <h1>Arbitrage Opportunities Viewer</h1>
+        <div id="wager-input">
+            <label for="wager">Enter wager amount: $</label>
+            <input type="number" id="wager" min="0" step="0.01">
+            <button onclick="updateProfits()">Update Profits</button>
+        </div>
         <div class="summary">
             <h2>Summary</h2>
             <p>Total events analyzed: {total_events}</p>
@@ -69,25 +128,33 @@ def generate_html(data):
     </html>
     """
 
+    # Sort arbitrage opportunities by profit margin in descending order
+    sorted_arbs = sorted(data['arbitrage_opportunities'], key=lambda x: x['profit_margin'], reverse=True)
+
     opportunities_html = ""
-    for arb in data['arbitrage_opportunities']:
+    for arb in sorted_arbs:
         opportunities_html += f"""
-        <div class="opportunity">
+        <div class="opportunity" data-profit-margin="{arb['profit_margin']}">
             <h2>{arb['event']}</h2>
             <p>Profit Margin: {arb['profit_margin']:.2f}%</p>
-            <p>Date: {arb['commence_time']}</p>
+            <p>Date: {format_date(arb['commence_time'])}</p>
+            <p>Total Points: {arb.get('total_points', 'N/A')}</p>
             <div class="odds">
         """
-        for team, odd in arb['best_odds'].items():
-            bookmaker = arb['bookmakers'][team]
+        for outcome, odd in arb['best_odds'].items():
+            bookmaker = arb['bookmakers'][outcome]
             opportunities_html += f"""
                 <div>
-                    <h3>{team}</h3>
+                    <h3>{outcome}</h3>
                     <p>Odds: {odd:.2f}</p>
                     <p>Bookmaker: {bookmaker}</p>
                 </div>
             """
         opportunities_html += """
+            </div>
+            <div class="profit-payout">
+                <p>Profit: $<span class="profit">0.00</span></p>
+                <p>Payout: $<span class="payout">0.00</span></p>
             </div>
         </div>
         """
@@ -102,9 +169,19 @@ def run_server(port=8000):
     server_address = ('', port)
     httpd = HTTPServer(server_address, SimpleHTTPRequestHandler)
     print(f"Server running on http://localhost:{port}")
-    httpd.serve_forever()
+    try:
+        httpd.serve_forever()
+    except KeyboardInterrupt:
+        print("\nShutting down the server...")
+        httpd.shutdown()
+
+def signal_handler(sig, frame):
+    print("\nExiting the viewer. Goodbye!")
+    sys.exit(0)
 
 def main():
+    signal.signal(signal.SIGINT, signal_handler)
+
     with open('arbitrage_results.json', 'r') as f:
         data = json.load(f)
 
@@ -123,9 +200,11 @@ def main():
 
     print("Press Ctrl+C to stop the server and exit.")
     try:
-        server_thread.join()
+        # Keep the main thread alive
+        while True:
+            signal.pause()
     except KeyboardInterrupt:
-        print("\nServer stopped.")
+        print("\nExiting the viewer. Goodbye!")
 
 if __name__ == "__main__":
     main()
