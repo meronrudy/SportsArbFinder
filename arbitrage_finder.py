@@ -11,6 +11,7 @@ class ArbitrageFinder:
         self.odds_api = OddsAPI(config)
         self.setup_logging()
         self.team_name_cache = {}  # Cache for standardized team names
+        self.links = []  # List to store links
 
     def setup_logging(self):
         logging.basicConfig(filename='arbitrage_finder.log', level=logging.INFO,
@@ -45,6 +46,8 @@ class ArbitrageFinder:
                 except Exception as e:
                     logging.error(f"Error processing sport {sport['key']}: {str(e)}")
                     continue
+
+            self.save_links_to_file()  # Save links to file
 
             return {
                 "total_events": total_events,
@@ -106,6 +109,10 @@ class ArbitrageFinder:
                             }
                             if points is not None:
                                 arb['points'] = points
+                            if self.config.includeLinks:
+                                arb['links'] = self.get_links(event)
+                            if self.config.includeBetLimits:
+                                arb['bet_limits'] = self.get_bet_limits(event)
                             arbs.append(arb)
                             logging.info(f"Added arbitrage opportunity with {profit_margin:.2f}% profit margin")
                         else:
@@ -142,6 +149,8 @@ class ArbitrageFinder:
                                 if outcome['name'] not in best_odds or outcome['price'] > best_odds[outcome['name']]:
                                     best_odds[outcome['name']] = outcome['price']
                                     bookmakers[outcome['name']] = bookmaker['title']
+                                    if self.config.includeLinks:
+                                        best_odds[outcome['name'] + '_link'] = outcome.get('link')
         return (best_odds, bookmakers, None) if len(best_odds) > 1 else (None, None, None)
 
     def get_best_odds_totals(self, event):
@@ -159,9 +168,13 @@ class ArbitrageFinder:
                                     if outcome['name'] == 'Over' and outcome['price'] > odds_by_points[total_points]['Over']:
                                         odds_by_points[total_points]['Over'] = outcome['price']
                                         bookmakers_by_points[total_points]['Over'] = bookmaker['title']
+                                        if self.config.includeLinks:
+                                            odds_by_points[total_points]['Over_link'] = outcome.get('link')
                                     elif outcome['name'] == 'Under' and outcome['price'] > odds_by_points[total_points]['Under']:
                                         odds_by_points[total_points]['Under'] = outcome['price']
                                         bookmakers_by_points[total_points]['Under'] = bookmaker['title']
+                                        if self.config.includeLinks:
+                                            odds_by_points[total_points]['Under_link'] = outcome.get('link')
         
         best_odds = None
         best_bookmakers = None
@@ -233,6 +246,8 @@ class ArbitrageFinder:
                                             'team': team_name,
                                             'bookmaker': bookmaker['title']
                                         }
+                                        if self.config.includeLinks:
+                                            odds_by_points[point][side]['link'] = outcome.get('link')
         
         # Find the best arbitrage opportunity across all point spreads
         best_odds = None
@@ -278,6 +293,30 @@ class ArbitrageFinder:
             return best_odds, best_bookmakers, best_points
         else:
             return None, None, None
+
+    def get_links(self, event):
+        links = {}
+        if 'bookmakers' in event and isinstance(event['bookmakers'], list):
+            for bookmaker in event['bookmakers']:
+                if 'link' in bookmaker:
+                    links[bookmaker['title']] = bookmaker['link']
+        return links
+
+    def get_bet_limits(self, event):
+        bet_limits = {}
+        if 'bookmakers' in event and isinstance(event['bookmakers'], list):
+            for bookmaker in event['bookmakers']:
+                if 'markets' in bookmaker and isinstance(bookmaker['markets'], list):
+                    for market in bookmaker['markets']:
+                        if 'outcomes' in market and isinstance(market['outcomes'], list):
+                            for outcome in market['outcomes']:
+                                if 'bet_limit' in outcome:
+                                    bet_limits[outcome['name']] = outcome['bet_limit']
+        return bet_limits
+
+    def save_links_to_file(self):
+        with open('links_test.json', 'w') as f:
+            json.dump(self.links, f, indent=2)
 
     def output_results(self, arbs, sport_title):
         if arbs:
@@ -433,4 +472,3 @@ class ArbitrageFinder:
     def format_date(self, date_string):
         date = datetime.fromisoformat(date_string.replace('Z', '+00:00'))
         return date.strftime('%Y-%m-%d %H:%M:%S %Z')
-

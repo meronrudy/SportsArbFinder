@@ -180,6 +180,10 @@ def generate_html(data):
                         <p>Odds: {odd:.2f}</p>
                         <p>Bookmaker: {bookmaker}</p>
                         <p>Bet Amount: $<span class="bet-amount" data-implied-prob="{implied_prob}">0.00</span></p>
+                        """
+                if arb.get('links') and arb['links'].get(bookmaker):
+                    opportunities_html += f'<p><a href="{arb["links"][bookmaker]}" target="_blank">Place Bet</a></p>'
+                opportunities_html += """
                     </div>
                 """
         

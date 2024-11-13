@@ -46,7 +46,10 @@ class OddsAPI:
             'regions': self.config.region,
             'markets': self.config.market,  # Use the new market parameter
             'oddsFormat': 'decimal',
-            'dateFormat': 'iso'
+            'dateFormat': 'iso',
+            'includeLinks': str(self.config.includeLinks).lower(),
+            'includeSids': str(self.config.includeSids).lower(),
+            'includeBetLimits': str(self.config.includeBetLimits).lower()
         }
         try:
             response = requests.get(url, params=params)

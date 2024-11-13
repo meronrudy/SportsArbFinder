@@ -13,9 +13,12 @@ def main():
     parser.add_argument("-s", "--save", type=str, help="Save API response to a file")
     parser.add_argument("-o", "--offline", type=str, help="Use offline data from a file instead of making API calls")
     parser.add_argument("--market", choices=["h2h", "spreads", "totals", "outrights", "h2h_lay", "outrights_lay"], default="h2h", help="Betting market to analyze")
+    parser.add_argument("--includeLinks", action="store_true", help="Include bookmaker links in the response")
+    parser.add_argument("--includeSids", action="store_true", help="Include source ids in the response")
+    parser.add_argument("--includeBetLimits", action="store_true", help="Include bet limits in the response")
     args = parser.parse_args()
 
-    config = Config(args.region, args.unformatted, args.cutoff, args.api_key, args.interactive, args.save, args.offline, args.market)
+    config = Config(args.region, args.unformatted, args.cutoff, args.api_key, args.interactive, args.save, args.offline, args.market, args.includeLinks, args.includeSids, args.includeBetLimits)
     arbitrage_finder = ArbitrageFinder(config)
     results = arbitrage_finder.find_arbitrage()
 

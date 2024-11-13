@@ -58,6 +58,9 @@ python main.py [options]
 - `-i`, `--interactive`: Enable the interactive betting calculator.
 - `-s`, `--save`: Save the API response to a specified file.
 - `-o`, `--offline`: Use offline data from a specified file instead of making API calls.
+- `--includeLinks`: Include bookmaker links in the response.
+- `--includeSids`: Include source ids in the response.
+- `--includeBetLimits`: Include bet limits in the response.
 
 #### Examples
 
@@ -84,6 +87,16 @@ python main.py [options]
 5. Use offline data:
    ```
    python main.py -o response_data.json
+   ```
+
+6. Include bookmaker links and source ids in the response:
+   ```
+   python main.py --includeLinks --includeSids
+   ```
+
+7. Include bet limits in the response:
+   ```
+   python main.py --includeBetLimits
    ```
 
 ## How It Works
